@@ -127,8 +127,10 @@ end)
 app.post('/', function(req, res)
   local input = torch.FloatTensor(opt.batchSize,3,opt.fineSize,opt.fineSize)
   local target = torch.FloatTensor(opt.batchSize,3,opt.fineSize,opt.fineSize)
-
-  local imageTempPath = '/tmp/tmp.jpg'
+  local tmpname = paths.tmpname()
+  local extname = paths.extname(req.form.file.filename)
+  local imageTempPath = tmpname .. '.' .. extname
+  print(imageTempPath)
   local options = {
     path = imageTempPath
   }
@@ -177,13 +179,16 @@ app.post('/', function(req, res)
     -- print(input:size())
     -- print(output:size())
     -- print(target:size())
-    for i=1, opt.batchSize do
+    -- for i=1, opt.batchSize do
         -- image.save(paths.concat(image_dir,'input',filepaths_curr[i]), image.scale(input[i],input[i]:size(2),input[i]:size(3)/opt.aspect_ratio))
-        image.save(paths.concat(image_dir,'output',filepaths_curr[i]), image.scale(output[i],output[i]:size(2),output[i]:size(3)/opt.aspect_ratio))
+    output_path = paths.concat(image_dir,'output',filepaths_curr[1])
+    image.save(output_path, image.scale(output[1],output[1]:size(2),output[1]:size(3)/opt.aspect_ratio))
         -- image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(2),target[i]:size(3)/opt.aspect_ratio))
-    end
+    -- end
 
-    res.send('Saved images to: ' .. image_dir)
+    -- res.send('Saved images to: ' .. image_dir)
+    res.sendFile(output_path)
+
   end
 
   req.form.file:save(options, cb)
@@ -191,4 +196,3 @@ app.post('/', function(req, res)
 end)
 
 app.listen()
-
