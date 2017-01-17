@@ -181,7 +181,9 @@ app.post('/', function(req, res)
     -- print(target:size())
     -- for i=1, opt.batchSize do
         -- image.save(paths.concat(image_dir,'input',filepaths_curr[i]), image.scale(input[i],input[i]:size(2),input[i]:size(3)/opt.aspect_ratio))
-    output_path = paths.concat(image_dir,'output',filepaths_curr[1])
+    -- output_path = paths.concat(image_dir,'output',filepaths_curr[1])
+    local output_tmp = paths.tmpname()
+    local output_path = output_tmp .. '.' .. extname
     image.save(output_path, image.scale(output[1],output[1]:size(2),output[1]:size(3)/opt.aspect_ratio))
         -- image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(2),target[i]:size(3)/opt.aspect_ratio))
     -- end
@@ -195,4 +197,6 @@ app.post('/', function(req, res)
 
 end)
 
-app.listen()
+app.listen({
+  host = '0.0.0.0'
+})
