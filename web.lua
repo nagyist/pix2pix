@@ -55,28 +55,6 @@ local function loadImageChannel(path)
   -- print("load image: ", path)
   local input = image.load(path, 3, 'float')
   input = image.scale(input, loadSize[2], loadSize[2])
-
-  local oW = sampleSize[2]
-  local oH = sampleSize[2]
-  local iH = input:size(2)
-  local iW = input:size(3)
-  
-  if iH~=oH then     
-    h1 = math.ceil(torch.uniform(1e-2, iH-oH))
-  end
-  
-  if iW~=oW then
-    w1 = math.ceil(torch.uniform(1e-2, iW-oW))
-  end
-  if iH ~= oH or iW ~= oW then 
-    input = image.crop(input, w1, h1, w1 + oW, h1 + oH)
-  end
-  
-  
-  if opt.flip == 1 and torch.uniform() > 0.5 then 
-    input = image.hflip(input)
-  end
-  
 --    print(input:mean(), input:min(), input:max())
   local input_lab = image.rgb2lab(input)
 --    print(input_lab:size())
@@ -88,6 +66,38 @@ local function loadImageChannel(path)
   assert(imAB:min()>=-1,"A: badly scaled inputs")
   
   return imAB
+end
+
+local preprocessA = function(imA)
+  imA = image.scale(imA, loadSize[2], loadSize[2])
+  local perm = torch.LongTensor{3, 2, 1}
+  imA = imA:index(1, perm)--:mul(256.0): brg, rgb
+  imA = imA:mul(2):add(-1)
+--   print(img:size())
+  assert(imA:max()<=1,"A: badly scaled inputs")
+  assert(imA:min()>=-1,"A: badly scaled inputs")
+
+  return imA
+end
+
+local laplacian = image.laplacian({
+  size = 11,
+  sigma = 0.05,
+  amplitude = 1.0,
+  normalize = false
+
+})
+-- print(laplacian)
+
+local function loadEdge(path)
+  -- print("load image: ", path)
+  local input = image.load(path, 3, 'float')
+  input = image.scale(input, loadSize[2], loadSize[2])
+  -- print(input:mean(), input:min(), input:max())
+  local edge_image = 1.0 - image.convolve(input, laplacian)
+--    print(input_lab:size())
+--    os.exit()
+  return edge_image
 end
 
 if opt.which_direction=='AtoB' then
@@ -102,9 +112,11 @@ end
 ----------------------------------------------------------------------------
 
 print('checkpoints_dir', opt.checkpoints_dir)
-local netG = util.load(paths.concat(opt.checkpoints_dir, opt.netG_name .. '.t7'), opt)
+local model_name = paths.concat(opt.checkpoints_dir, opt.netG_name .. '.t7')
+print('model path:', model_name)
+local netG = util.load(model_name, opt)
 --netG:evaluate()
-print(netG)
+--print(netG)
 
 -- web
 local app = require 'waffle'
@@ -128,9 +140,10 @@ app.post('/', function(req, res)
   local input = torch.FloatTensor(opt.batchSize,3,opt.fineSize,opt.fineSize)
   local target = torch.FloatTensor(opt.batchSize,3,opt.fineSize,opt.fineSize)
   local tmpname = paths.tmpname()
+  -- print(req.form)
   local extname = paths.extname(req.form.file.filename)
   local imageTempPath = tmpname .. '.' .. extname
-  print(imageTempPath)
+  -- print(imageTempPath)
   local options = {
     path = imageTempPath
   }
@@ -139,8 +152,25 @@ app.post('/', function(req, res)
     -- Get Data
     local data_curr, filepaths_curr
 
+    if opt.preprocess == 'edge' then
+      edge = loadEdge(imageTempPath)
+      local output_tmp = paths.tmpname()
+      local output_path = output_tmp .. '.' .. extname
+      image.save(output_path, edge)
+      res.sendFile(output_path)
+      return
+    end
+
+    -- image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(2),target[i]:size(3)/opt.aspect_ratio))
+
     -- Only for colorization
-    input_lab = loadImageChannel(imageTempPath)
+    if opt.preprocess == 'colorization' then
+        input_lab = loadImageChannel(imageTempPath)
+    else
+        input_lab = image.load(imageTempPath, 3, 'float')
+        input_lab = preprocessA(input_lab)
+    end
+
     input_size = input_lab:size()
     data_curr = torch.Tensor(1, input_size[1], input_size[2], input_size[3])
     data_curr[1]:copy(input_lab)
@@ -151,7 +181,8 @@ app.post('/', function(req, res)
     -- print('filepaths_curr: ', filepaths_curr)
 
     input = data_curr[{ {}, idx_A, {}, {} }]
-    target = data_curr[{ {}, idx_B, {}, {} }]
+    -- target = data_curr[{ {}, idx_B, {}, {} }]
+    -- print(input:size())
 
     if opt.gpu > 0 then
         input = input:cuda()
@@ -161,14 +192,14 @@ app.post('/', function(req, res)
        local output_AB = netG:forward(input):float()
        local input_L = input:float() 
        output = util.deprocessLAB_batch(input_L, output_AB)
-       local target_AB = target:float()
-       target = util.deprocessLAB_batch(input_L, target_AB)
+       -- local target_AB = target:float()
+       -- target = util.deprocessLAB_batch(input_L, target_AB)
        input = util.deprocessL_batch(input_L)
     else 
         output = util.deprocess_batch(netG:forward(input))
         input = util.deprocess_batch(input):float()
         output = output:float()
-        target = util.deprocess_batch(target):float()
+        -- target = util.deprocess_batch(target):float()
     end
     paths.mkdir(paths.concat(opt.results_dir, opt.netG_name .. '_' .. opt.phase))
     local image_dir = paths.concat(opt.results_dir, opt.netG_name .. '_' .. opt.phase, 'images')
@@ -188,7 +219,7 @@ app.post('/', function(req, res)
         -- image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(2),target[i]:size(3)/opt.aspect_ratio))
     -- end
 
-    -- res.send('Saved images to: ' .. image_dir)
+    print('Saved images to: ' .. output_path)
     res.sendFile(output_path)
 
   end
