@@ -80,6 +80,7 @@ local preprocessA = function(imA)
   return imA
 end
 
+local lap_size = 11
 local laplacian = image.laplacian({
   size = 11,
   sigma = 0.05,
@@ -92,7 +93,7 @@ local laplacian = image.laplacian({
 local function loadEdge(path)
   -- print("load image: ", path)
   local input = image.load(path, 3, 'float')
-  input = image.scale(input, loadSize[2], loadSize[2])
+  input = image.scale(input, loadSize[2] + lap_size - 1, loadSize[2] + lap_size - 1)
   -- print(input:mean(), input:min(), input:max())
   local edge_image = 1.0 - image.convolve(input, laplacian)
 --    print(input_lab:size())
@@ -100,15 +101,9 @@ local function loadEdge(path)
   return edge_image
 end
 
-if opt.which_direction=='AtoB' then
-  idx_A = {1, input_nc}
-  idx_B = {input_nc+1, input_nc+output_nc}
-elseif opt.which_direction=='BtoA' then
-  idx_A = {input_nc+1, input_nc+output_nc}
-  idx_B = {1, input_nc}
-else
-  error(string.format('bad direction %s',opt.which_direction))
-end
+idx_A = {1, input_nc}
+idx_B = {input_nc+1, input_nc+output_nc}
+
 ----------------------------------------------------------------------------
 
 print('checkpoints_dir', opt.checkpoints_dir)
@@ -152,20 +147,13 @@ app.post('/', function(req, res)
     -- Get Data
     local data_curr, filepaths_curr
 
-    if opt.preprocess == 'edge' then
-      edge = loadEdge(imageTempPath)
-      local output_tmp = paths.tmpname()
-      local output_path = output_tmp .. '.' .. extname
-      image.save(output_path, edge)
-      res.sendFile(output_path)
-      return
-    end
-
     -- image.save(paths.concat(image_dir,'target',filepaths_curr[i]), image.scale(target[i],target[i]:size(2),target[i]:size(3)/opt.aspect_ratio))
 
     -- Only for colorization
     if opt.preprocess == 'colorization' then
         input_lab = loadImageChannel(imageTempPath)
+    elseif opt.preprocess == 'edge' then
+      input_lab = loadEdge(imageTempPath)
     else
         input_lab = image.load(imageTempPath, 3, 'float')
         input_lab = preprocessA(input_lab)
@@ -180,6 +168,7 @@ app.post('/', function(req, res)
     filepaths_curr = util.basename_batch(filepaths_curr)
     -- print('filepaths_curr: ', filepaths_curr)
 
+    print(data_curr:size(), idx_A)
     input = data_curr[{ {}, idx_A, {}, {} }]
     -- target = data_curr[{ {}, idx_B, {}, {} }]
     -- print(input:size())
